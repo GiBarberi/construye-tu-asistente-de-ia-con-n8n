@@ -1,24 +1,286 @@
 # Laia: asistente de productividad personal en n8n
 
-**Laia** ("La IA") es una asistente ejecutiva construida en n8n como proyecto del workshop *Construye tu Asistente de IA con n8n*. El repositorio se completa por checkpoints.
+**Repositorio:** [`GiBarberi/construye-tu-asistente-de-ia-con-n8n`](https://github.com/GiBarberi/construye-tu-asistente-de-ia-con-n8n) · **Autora:** Graciela Barberi
 
-| Checkpoint | Archivo | Qué agrega |
+**Laia** ("La IA") es una asistente ejecutiva construida en n8n como proyecto del workshop *Construye tu Asistente de IA con n8n*. Gestiona el correo de Gmail y la agenda de Google Calendar, y en la entrega final quedó publicada como un servicio con un contrato de API estable.
+
+| Etapa | Archivo | Qué agrega |
 | --- | --- | --- |
-| **1. Agente base** | [`checkpoint1_agente_base_GRACIELA_BARBERI.json`](checkpoint1_agente_base_GRACIELA_BARBERI.json) | Chat Trigger, AI Agent, LLM, System Prompt y memoria básica |
-| **2. Gmail + Calendar** | [`checkpoint2_gmail_calendar_GRACIELA_BARBERI.json`](checkpoint2_gmail_calendar_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint2_arquitectura.png) | Gmail como herramienta (leer, limpiar y clasificar) y Calendar esbozado con validación de disponibilidad |
-| **3. Robustez y memoria** | [`checkpoint3_robustez_GRACIELA_BARBERI.json`](checkpoint3_robustez_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint3_robustez.png) | Memoria de ventana (k = 6) por sesión, reintentos con backoff exponencial, rutas de fallback y logging estructurado |
-
-**Qué hace Laia hasta ahora:**
-
-- **Conversación:** conversa recordando los últimos 6 intercambios de cada usuario, con la memoria separada por sesión.
-- **Gmail:** lee el correo, lo limpia (sin HTML, sin historial del hilo y sin firmas) y lo clasifica en un JSON estructurado.
-- **Calendar:** cuando detecta una reunión, convierte la fecha relativa a ISO 8601, valida la disponibilidad en Google Calendar y pide confirmación antes de crear el evento.
-- **Fallas:** si una API falla, reintenta solo los errores transitorios con backoff exponencial. Si no se recupera, responde con un mensaje de fallback en lugar de cortarse.
-- **Registro:** guarda cada ejecución (éxito o error) en la tabla `laia_logs`.
+| **Entrega final** | [`proyecto_final_asistente_GRACIELA_BARBERI.json`](proyecto_final_asistente_GRACIELA_BARBERI.json) · [diagrama](diagramas/final_produccion.png) | Webhook de producción con clave, contrato JSON validado (200 / 400 / 503), las 4 herramientas reales de Gmail y Calendar, memoria k = 5 por `session_id` y logging versionado |
+| 1. Agente base | [`checkpoint1_agente_base_GRACIELA_BARBERI.json`](checkpoint1_agente_base_GRACIELA_BARBERI.json) | Chat Trigger, AI Agent, LLM, System Prompt y memoria básica |
+| 2. Gmail + Calendar | [`checkpoint2_gmail_calendar_GRACIELA_BARBERI.json`](checkpoint2_gmail_calendar_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint2_arquitectura.png) | Gmail como herramienta (leer, limpiar y clasificar) y Calendar esbozado |
+| 3. Robustez y memoria | [`checkpoint3_robustez_GRACIELA_BARBERI.json`](checkpoint3_robustez_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint3_robustez.png) | Memoria de ventana, reintentos con backoff exponencial, fallback y logging |
 
 ---
 
-## Checkpoint 3: memoria, resiliencia y logging
+## Entrega final: Laia como servicio en producción
+
+### Cómo probarla (para el evaluador)
+
+**URL del Webhook de producción:**
+
+```
+POST https://grabarberi.app.n8n.cloud/webhook/laia
+```
+
+El endpoint pide una clave en el header `X-Laia-Key`. **La clave no está en el repositorio**: te la paso por mensaje junto con la entrega. Sin clave, o con una clave incorrecta, n8n responde `403` y no ejecuta nada.
+
+**Payload de ejemplo:**
+
+```json
+{
+  "query": "Agenda una reunión con Juan mañana a las 10am",
+  "session_id": "evaluador-01"
+}
+```
+
+**Con curl** (reemplazá `TU_CLAVE` por la clave que te pasé):
+
+```bash
+curl -X POST https://grabarberi.app.n8n.cloud/webhook/laia \
+  -H "Content-Type: application/json" \
+  -H "X-Laia-Key: TU_CLAVE" \
+  -d '{"query": "Agenda una reunión con Juan mañana a las 10am", "session_id": "evaluador-01"}'
+```
+
+**Secuencia sugerida para ver todo funcionando** (con el mismo `session_id`, así se ve la memoria):
+
+1. `"Hola, me llamo Juan Pérez. ¿Qué podés hacer?"` → se presenta y lista lo que puede hacer.
+2. `"¿Qué tengo en la agenda mañana?"` → consulta Google Calendar en hora de Argentina.
+3. `"Agenda una reunión con Juan mañana a las 10am"` → verifica la disponibilidad, crea el evento de 30 minutos y confirma con el link.
+4. `"¿A qué hora quedó?"` → responde con la hora usando la memoria de la conversación, sin volver a consultar.
+5. `"Revisá mis últimos 3 correos y clasificalos"` → lee Gmail, limpia los correos y los clasifica por categoría y urgencia.
+6. `{"query": ""}` → recibe un `400` con el detalle de qué campos están mal.
+
+> Con otro `session_id` la memoria empieza vacía: cada conversación tiene su propio historial.
+
+### Contrato de la API
+
+**Entrada** (body JSON):
+
+| Campo | Tipo | Regla |
+| --- | --- | --- |
+| `query` | string | Obligatorio. Entre 1 y 1000 caracteres. Es el pedido en lenguaje natural. |
+| `session_id` | string | Obligatorio. Entre 3 y 100 caracteres (letras, números, `-` y `_`). Identifica la conversación y separa la memoria de cada usuario. |
+
+No se admiten otros campos: si llegan, la respuesta es `400`.
+
+**Salida.** Todas las respuestas tienen **el mismo esquema**, sea éxito o error:
+
+```json
+{
+  "ok": true,
+  "status": 200,
+  "session_id": "evaluador-01",
+  "respuesta": "Texto en lenguaje natural para la persona (null si es 400)",
+  "error": null,
+  "meta": {
+    "execution_id": "137",
+    "timestamp": "2026-11-05T17:10:52.543-03:00",
+    "model": "models/gemini-3-flash-preview",
+    "workflow_version": "4.0.0"
+  }
+}
+```
+
+Cuando hay un error, `ok` es `false` y `error` trae `{ code, message, details }`.
+
+**Códigos HTTP:**
+
+| Código | `error.code` | Cuándo |
+| --- | --- | --- |
+| **200** | — | Laia procesó el pedido. `respuesta` trae el texto final, nunca JSON crudo. |
+| **400** | `INVALID_INPUT` | El body no cumple el contrato. `details` lista cada campo con su problema. |
+| **403** | — | Falta la clave `X-Laia-Key` o es incorrecta. Lo responde n8n antes de ejecutar el flujo. |
+| **503** | `AI_UNAVAILABLE` | El modelo falló después de 3 intentos. `respuesta` trae un mensaje amable de fallback. |
+
+Si una API de Google falla (Gmail o Calendar), la respuesta sigue siendo **200**. Laia explica en lenguaje natural qué no pudo hacer, sin inventar datos.
+
+### Arquitectura
+
+![Flujo de la entrega final](diagramas/final_produccion.png)
+
+**Verde:** flujo feliz. **Azul:** Calendar. **Rojo:** errores y recuperación. **Naranja:** respuesta y logging. También está en [SVG](diagramas/final_produccion.svg) y en código fuente [Mermaid](diagramas/final_produccion.mmd).
+
+![Workflow completo en n8n](capturas/final_flujo_completo.png)
+
+Todo vive en **un solo workflow** con dos entradas:
+
+1. **API pública:** `Webhook` → `Validar contrato` → `¿Payload válido?` → `Laia (AI Agent)` → `Respuesta 200 / 400 / 503` → `Responder (contrato JSON)` → `Registrar log`.
+2. **Subflujo de herramientas:** `Cuando Laia usa una herramienta` → `Preparar intento` → `Ruta por acción` → el nodo de Gmail o Calendar que corresponda. Las cuatro herramientas del agente llaman a este subflujo con `{{ $workflow.id }}` y una `accion` fija.
+
+### Cerebro: agente, herramientas y memoria
+
+| Pieza | Configuración |
+| --- | --- |
+| **Modelo** | Google Gemini · `models/gemini-3-flash-preview` · temperatura 0.3 |
+| **Memoria** | Window Buffer Memory · `k = 5` · Session ID = `session_id` del body (sliding window por usuario) |
+| **Agente** | AI Agent · Retry On Fail 3 × 3 s · On Error → salida de error (`Respuesta 503`) · máximo 10 iteraciones |
+| **Timeout** | 180 s por ejecución |
+
+**Herramientas reales** (todas ejecutan Gmail o Calendar de verdad, no simulaciones):
+
+| Herramienta | Qué hace | Parámetros que completa el modelo |
+| --- | --- | --- |
+| `leer_correos` | Lee Gmail y devuelve los correos limpios (sin HTML, historial del hilo ni firmas) | `consulta` (sintaxis de búsqueda de Gmail), `cantidad` (1 a 10) |
+| `consultar_disponibilidad` | Lista los eventos de un rango y marca si hay conflicto | `desde`, `hasta` en ISO 8601 con `-03:00` |
+| `crear_evento` | Crea el evento, con invitados opcionales | `titulo`, `inicio`, `fin`, `descripcion`, `invitados` |
+| `enviar_correo` | Envía un correo de texto | `para`, `asunto`, `mensaje` |
+
+**System Prompt final** (resumen; el texto completo está en el nodo `Laia (AI Agent)`):
+
+- **Rol:** asistente ejecutiva de productividad de Graciela, solo para correo y agenda.
+- **Contexto:** fecha, año y hora actuales en Buenos Aires inyectados en cada ejecución; todas las fechas viajan en ISO 8601 con `-03:00`.
+- **Herramientas:** lista cerrada de las cuatro, con una regla de uso para cada una. Usa una herramienta por paso, nunca dos en paralelo.
+- **Agendar:** convierte la fecha relativa, valida la disponibilidad y, si hay conflicto, no crea nada y propone otro horario. Si el pedido está completo, crea el evento y confirma con el link; si falta día u hora, pregunta.
+- **Correo:** envía solo si se lo piden de forma explícita y con un email de destino.
+- **Errores:** nunca inventa resultados. Si una escritura quedó sin confirmar, verifica antes de reintentar para no duplicar.
+- **Formato:** texto natural y amigable, **nunca JSON**. Fechas `dd/MM/aaaa` y horas en formato de 24 h.
+
+### Zona horaria
+
+- **Workflow:** `America/Argentina/Buenos_Aires` en la configuración (Settings → Timezone).
+- **Calendar · listar:** opción `timeZone = America/Argentina/Buenos_Aires`, así las horas vuelven en hora de Argentina.
+- **Calendar · crear:** recibe `inicio` y `fin` con offset `-03:00` explícito. El System Prompt obliga a ese formato.
+
+### Resiliencia
+
+| Capa | Mecanismo |
+| --- | --- |
+| **LLM** | Retry On Fail 3 intentos × 3 s. Si falla igual → `503 AI_UNAVAILABLE` con mensaje amable, y queda registrado en el log. |
+| **Gmail y Calendar** | Los cuatro nodos tienen `On Error → salida de error` hacia **el mismo** `Analizar error (Google API)`, así Gmail y Calendar usan la misma clasificación de errores transitorios. |
+| **Transitorios** | `429`, `5xx`, timeouts y errores de red se reintentan con backoff exponencial más jitter (1 s → 2 s → 4 s), hasta 3 intentos. |
+| **Permanentes** | `400`, `401`, `403` y `404` no se reintentan: vuelven como un error estructurado y Laia lo explica. |
+| **Escrituras** | `crear_evento` y `enviar_correo` **no se reintentan solas** aunque el error sea transitorio, porque podrían haberse completado (idempotencia). Vuelven con `escritura_sin_confirmar: true` y Laia verifica antes de reintentar. |
+| **Entrada** | El contrato se valida antes de llamar al modelo: un payload inválido no gasta tokens. |
+
+### Logging
+
+Cada request (200, 400 o 503) se guarda en la Data Table `laia_logs`:
+
+`execution_id` · `workflow_name` · **`workflow_version`** (`4.0.0`) · `status` · **`http_status`** · `model_used` · `timestamp` (hora de Buenos Aires) · `session_id` · `user_message` · `error_message` · `respuesta`
+
+### Seguridad
+
+- **Sin credenciales en el repo:** el `.json` exportado no incluye ningún bloque `credentials`. Las claves de Google y del webhook viven solo en el gestor de credenciales de n8n.
+- **Endpoint protegido** con Header Auth: la clave se comparte por mensaje privado, nunca en el código.
+- **Contrato estricto:** se rechazan campos extra y textos de más de 1000 caracteres.
+
+### Cómo importarlo en otra cuenta de n8n
+
+**Credenciales y variables que necesitás:**
+
+| Qué | Tipo de credencial en n8n | Dónde se usa |
+| --- | --- | --- |
+| Clave del webhook | **Header Auth** · Name `X-Laia-Key` · Value: tu clave | `Webhook POST /laia` |
+| Modelo | **Google Gemini (PaLM) API** (o los créditos de IA de n8n) · modelo `models/gemini-3-flash-preview` | `Gemini 3 Flash` |
+| Gmail | **Gmail OAuth2** | `Gmail: obtener correos`, `Gmail: enviar correo` |
+| Calendar | **Google Calendar OAuth2** | `Calendar: listar eventos`, `Calendar: crear evento` |
+| Logs | Data Table llamada **`laia_logs`** con las columnas de la sección Logging (`tokens_consumed` y `http_status` numéricas, el resto texto) | `Registrar log (laia_logs)` |
+
+**Pasos:**
+
+1. En n8n: **Workflows → Import from File** → `proyecto_final_asistente_GRACIELA_BARBERI.json`.
+2. Creá la Data Table `laia_logs` con las columnas de arriba.
+3. Abrí cada nodo marcado en rojo y asigná la credencial correspondiente de la tabla.
+4. **Publicá el workflow (Publish).** Es obligatorio: las herramientas llaman al subflujo con `{{ $workflow.id }}`, y n8n ejecuta la versión **publicada**. Sin publicar, el agente responde "Workflow is not active".
+5. Copiá la **Production URL** del nodo Webhook (no la de Test) y probala con el curl de arriba.
+
+### Sobre el modelo elegido
+
+El curso propone `gemini-1.5-flash` o `gpt-4o`. Usé **`models/gemini-3-flash-preview`** porque Google **retiró la familia Gemini 1.5** de su API y hoy esos modelos devuelven error. Gemini 3 Flash es el sucesor directo de la misma línea "Flash" (rápido y económico), está disponible con los créditos de IA incluidos en n8n Cloud y soporta las llamadas a herramientas que necesita el agente. Para cambiarlo basta con editar el campo *Model* del nodo `Gemini 3 Flash`.
+
+### Prueba de Gmail con un correo simulado
+
+Para replicar la lectura y clasificación, enviá este correo a la cuenta de Gmail conectada:
+
+- **Asunto:** `Reunión para revisar la propuesta`
+- **Cuerpo:** `Hola Grace, ¿podemos juntarnos mañana a las 15 h para revisar la propuesta de la agencia? Saludos, Natalia`
+
+Después llamá al endpoint con `"query": "Revisá mis últimos 3 correos y clasificalos"`.
+
+**Salida de la herramienta `leer_correos`** (lo que recibe el agente después de la limpieza):
+
+```json
+{
+  "total": 1,
+  "correos": [
+    {
+      "id": "1a1ad35cee76c4b8",
+      "de": "\"Graciela Barberi\" <remitente@ejemplo.com>",
+      "asunto": "Reunión para revisar la propuesta",
+      "fecha": "2026-11-05T19:35:10.000Z",
+      "cuerpo": "Hola Grace, ¿podemos juntarnos mañana a las 15 h para revisar la propuesta\nde la agencia? Saludos, Natalia"
+    }
+  ]
+}
+```
+
+La firma (`-- ` y la imagen) ya no aparece en `cuerpo`.
+
+**Respuesta clasificada que devuelve el endpoint** (extracto real de la ejecución 137):
+
+> 1. **De: Graciela Barberi (Natalia)**
+>    * **Asunto**: Reunión para revisar la propuesta.
+>    * **Resumen**: Natalia te pregunta si pueden reunirse mañana a las 15:00 para revisar la propuesta de la agencia.
+>    * **Categoría**: Agendamiento | **Urgencia**: Alta.
+
+### Evidencia de funcionamiento
+
+Todas son ejecuciones reales contra el Webhook de producción.
+
+**1. Payload inválido → 400** (ejecución 27, body `{"query": "", "extra": 1}`):
+
+```json
+{
+  "ok": false,
+  "status": 400,
+  "session_id": null,
+  "respuesta": null,
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "El body no cumple el contrato. Enviá { \"query\": string, \"session_id\": string }.",
+    "details": [
+      { "campo": "query", "problema": "No puede estar vacío." },
+      { "campo": "session_id", "problema": "Es obligatorio y debe ser texto." },
+      { "campo": "extra", "problema": "Campos no admitidos por el contrato." }
+    ]
+  },
+  "meta": { "execution_id": "27", "timestamp": "2026-11-05T17:04:59.362-03:00", "model": "models/gemini-3-flash-preview", "workflow_version": "4.0.0" }
+}
+```
+
+**2. Memoria dentro de la misma conversación** (`session_id: "eval-memoria-01"`):
+
+| Ejecución | `query` | `respuesta` |
+| --- | --- | --- |
+| 85 | "Hola, me llamo Grace. ¿Quién sos y qué podés hacer?" | "¡Hola, Grace! Qué gusto saludarte. Soy Laia, tu asistente ejecutiva de productividad…" |
+| 98 | "¿Cómo me llamo?" | "Te llamás **Grace**. …" |
+
+**3. Agenda en hora de Argentina** (ejecución 107, `"¿Qué tengo en la agenda mañana?"`):
+
+> Para mañana, viernes 6 de noviembre, tenés un solo compromiso en tu agenda:
+> * **15:00 - 15:30**: [IA] - Reunión para revisar la propuesta.
+
+**4. Agendar una reunión de punta a punta** (`"Agenda una reunión con Juan mañana a las 10am"`):
+
+![Respuesta del endpoint al agendar](capturas/final_agendar_juan.png)
+
+![Evento creado en Google Calendar](capturas/final_evento_calendar.png)
+
+**5. Ejecución en n8n y logs:**
+
+![Ejecución exitosa en n8n](capturas/final_ejecucion.png)
+
+![Tabla laia_logs con la versión y el código HTTP](capturas/final_logs.png)
+
+### Video demo
+
+*Opcional — se agrega el link cuando esté grabado.*
+
+---
+
+## Checkpoint 3 (historial): memoria, resiliencia y logging
 
 ### Diagrama de arquitectura
 

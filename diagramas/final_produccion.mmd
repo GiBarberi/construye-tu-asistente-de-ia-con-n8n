@@ -1,0 +1,74 @@
+---
+title: "Laia · Entrega final — servicio en producción"
+---
+flowchart TB
+    %% ───────────── ENTRADA ─────────────
+    C(["💻 Cliente<br/>curl · app · Postman"]) -- "POST /webhook/laia<br/>header X-Laia-Key<br/>{ query, session_id }" --> WH["<b>Webhook (Production URL)</b><br/>Header Auth · responde con nodo"]
+    WH -- "clave incorrecta" --> R403(["🔒 403 Forbidden<br/>(lo responde n8n)"])
+    WH --> VC["<b>Validar contrato</b><br/>query 1–1000 · session_id 3–100<br/>sin campos extra"]
+    VC --> IF{"¿Payload<br/>válido?"}
+    IF -- "no" --> E400["<b>Respuesta 400</b><br/>INVALID_INPUT + details[]"]
+
+    %% ───────────── BRAIN ─────────────
+    subgraph BRAIN["🧠 BRAIN NODE"]
+        direction LR
+        LLM["<b>Gemini 3 Flash</b><br/>models/gemini-3-flash-preview"]
+        MEM["<b>Window Buffer Memory</b><br/>k = 5 · Session ID = session_id"]
+        AG{{"<b>Laia · AI Agent</b><br/>System Prompt final<br/>Retry On Fail 3 × 3 s"}}
+        LLM -. "ai_languageModel" .-> AG
+        MEM -. "historial de la sesión" .-> AG
+    end
+    IF -- "sí" --> AG
+
+    %% ───────────── TOOLS ─────────────
+    subgraph TOOLS["🔧 SUBFLUJO DE HERRAMIENTAS (mismo workflow, publicado)"]
+        direction TB
+        P["Preparar intento<br/>intento = 0, 1, 2"]
+        SW{"Ruta por acción"}
+        G1["<b>Gmail · leer</b> → limpiar"]
+        K1["<b>Calendar · listar</b><br/>timeZone America/Argentina/Buenos_Aires"]
+        K2["<b>Calendar · crear</b><br/>con invitados opcionales"]
+        G2["<b>Gmail · enviar</b>"]
+        AE["<b>Analizar error</b><br/>misma clasificación para Gmail y Calendar<br/>429 / 5xx / timeout = transitorio"]
+        RT{"¿Lectura transitoria<br/>y quedan intentos?"}
+        W["<b>Backoff exponencial</b><br/>1 s → 2 s → 4 s + jitter"]
+        FB["<b>Fallback Google API</b><br/>error { tipo, http_status, escritura_sin_confirmar }"]
+        P --> SW
+        SW --> G1 & K1 & K2 & G2
+        G1 & K1 & K2 & G2 -- "error" --> AE --> RT
+        RT -- "sí" --> W --> P
+        RT -- "no · 4xx, escritura o sin intentos" --> FB
+    end
+    AG == "leer_correos · consultar_disponibilidad<br/>crear_evento · enviar_correo" ==> P
+    TOOLS == "resultado limpio<br/>o error estructurado" ==> AG
+
+    %% ───────────── SALIDAS ─────────────
+    OK["<b>Respuesta 200</b><br/>respuesta en lenguaje natural"]
+    E503["<b>Respuesta 503</b><br/>AI_UNAVAILABLE · fallback amable"]
+    AG == "output" ==> OK
+    AG -- "falló tras 3 intentos" --> E503
+    RW["<b>Respond to Webhook</b><br/>mismo esquema siempre:<br/>ok · status · session_id · respuesta · error · meta"]
+    OK ==> RW
+    E400 --> RW
+    E503 --> RW
+    RW ==> OUT(["✅ JSON al cliente"])
+    RW --> DT[("<b>Data Table · laia_logs</b><br/>execution_id · workflow_version · status<br/>http_status · session_id · error_message")]
+
+    %% ───────────── ESTILOS ─────────────
+    classDef base fill:#F4F1EA,stroke:#6f6a60,color:#1d1b18
+    classDef brain fill:#1d1b18,stroke:#1d1b18,color:#F4F1EA,stroke-width:2px
+    classDef ok fill:#E7F5EC,stroke:#15803D,color:#0b3b1d,stroke-width:1.5px
+    classDef err fill:#FDECEC,stroke:#B91C1C,color:#4c0a0a,stroke-width:1.5px
+    classDef log fill:#FFF7E6,stroke:#B45309,color:#3a2604,stroke-width:1.5px
+    classDef cal fill:#EEF0FB,stroke:#3B4BA8,color:#1b2150
+
+    class C,WH,VC,IF,LLM,MEM,P,SW base
+    class AG brain
+    class G1,G2,OK,OUT ok
+    class K1,K2 cal
+    class R403,E400,E503,AE,RT,W,FB err
+    class RW,DT log
+
+    linkStyle default stroke:#4b4740
+    style BRAIN fill:#FAF8F3,stroke:#1d1b18
+    style TOOLS fill:#FBFBFB,stroke:#6f6a60
