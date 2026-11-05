@@ -294,6 +294,8 @@ Todas son ejecuciones reales contra el Webhook de producción.
 
 ![Tabla laia_logs con la versión y el código HTTP](capturas/final_logs.png)
 
+Las filas con `Null` en `workflow_version` y `http_status` son del Checkpoint 3, anteriores a que existieran esas columnas. Desde la versión `4.0.0` cada request queda registrado con su código HTTP: el `400` del payload inválido y los `200` de las conversaciones.
+
 ### Video demo
 
 *Opcional — se agrega el link cuando esté grabado.*
