@@ -1,0 +1,101 @@
+---
+title: "Laia · Checkpoint 2 — Arquitectura Gmail → Agente → Calendar"
+---
+flowchart TB
+    %% ───────────── ENTRADA ─────────────
+    subgraph IN["① ENTRADA"]
+        direction TB
+        U(["👤 Usuario"])
+        CT["<b>Chat Trigger</b><br/>Chat con Laia"]
+        U -- "mensaje en lenguaje natural" --> CT
+    end
+
+    %% ───────────── BRAIN NODE ─────────────
+    subgraph BRAIN["② BRAIN NODE"]
+        direction TB
+        AG{{"<b>AI Agent · Tools Agent</b><br/>Laia<br/><i>razona → elige tool → observa → responde</i>"}}
+        LLM["<b>Gemini 3 Flash</b><br/>temperatura 0.3"]
+        MEM["<b>Window Buffer Memory</b><br/>sessionKey = test-user"]
+        SP["<b>System Prompt</b><br/>rol · tools · reglas de clasificación<br/>fecha actual con $now<br/>zona America/Argentina/Buenos_Aires"]
+        LLM -. "ai_languageModel" .-> AG
+        MEM -. "ai_memory: historial" .-> AG
+        SP -. "instrucciones" .-> AG
+    end
+
+    CT -- "chatInput + sessionId" --> AG
+
+    %% ───────────── GMAIL TOOL SET ─────────────
+    subgraph GMAIL["③ GMAIL TOOL SET · funcional"]
+        direction TB
+        T1["<b>Tool: leer_correos</b><br/>Call n8n Workflow Tool"]
+        EWT["Execute Workflow Trigger"]
+        GM["<b>Gmail · Get many</b><br/>OAuth 2.0 · gmail.modify"]
+        CODE["<b>Code: limpiar y normalizar</b><br/>quita HTML · corta historial del hilo<br/>quita firmas · recorta a 1200 caracteres"]
+        T1 --> EWT
+        EWT -- "consulta (q), cantidad" --> GM
+        GM -- "mensajes crudos: from, subject,<br/>date (UTC), html/text, threadId" --> CODE
+    end
+
+    AG == "llama a leer_correos(consulta, cantidad)" ==> T1
+    CODE == "JSON limpio: {total, correos[id, de,<br/>asunto, fecha, cuerpo]}" ==> AG
+
+    %% ───────────── CALENDAR TOOL SET ─────────────
+    subgraph CAL["④ CALENDAR TOOL SET · esbozado"]
+        direction TB
+        subgraph VAL["✔ VALIDACIÓN DE DISPONIBILIDAD"]
+            direction TB
+            T2["<b>Tool: consultar_disponibilidad</b><br/>Google Calendar · List Events<br/>calendar = primary"]
+            Q{"¿Hay eventos<br/>en el rango?"}
+            T2 --> Q
+        end
+        CONF["Pedir confirmación<br/>al usuario<br/><i>(human-in-the-loop)</i>"]
+        T3["<b>Tool: crear_evento</b><br/>Google Calendar · Create<br/>título '[IA] - …' · 30 min por defecto"]
+        ALT["Avisar conflicto y<br/>proponer otro horario"]
+        Q -- "sí → conflicto" --> ALT
+        Q -- "no → libre" --> CONF
+        CONF -- "confirmado" --> T3
+    end
+
+    AG == "timeMin / timeMax en ISO 8601 -03:00" ==> T2
+    T3 == "start, end (ISO -03:00), summary, description" ==> GCAPI[("Google Calendar API<br/>devuelve id + htmlLink")]
+
+    %% ───────────── SALIDA ─────────────
+    subgraph OUT["⑤ SALIDA"]
+        direction TB
+        R1["<b>Respuesta en el chat</b><br/>resumen en viñetas por correo"]
+        R2["<b>JSON de clasificación</b><br/>category · urgency_level · summary<br/>accion_sugerida · fecha_propuesta"]
+        R3["<b>Confirmación de evento</b><br/>con link de Google Calendar"]
+    end
+
+    AG -- "respuesta final (output)" --> OUT
+
+    %% ───────────── NOTA DE FECHAS ─────────────
+    NOTE["<b>📅 MANEJO DE FECHAS Y ZONAS HORARIAS</b><br/>1. n8n inyecta la fecha real en el System Prompt:<br/>$now.setZone('America/Argentina/Buenos_Aires')<br/>2. El agente convierte lo relativo a absoluto:<br/>'mañana a las 15 h' → 2026-11-06T15:00:00-03:00<br/>3. Siempre ISO 8601 con offset -03:00 para la API de Calendar<br/>4. Gmail entrega la fecha en UTC: se convierte a -03:00 antes de comparar<br/>5. Si falta día u hora, el agente pregunta: no adivina"]
+    SP -.- NOTE
+
+    %% ───────────── ESTILOS ─────────────
+    classDef entrada fill:#FFF4E5,stroke:#C2410C,color:#1d1b18,stroke-width:1.5px
+    classDef brain fill:#1d1b18,stroke:#1d1b18,color:#F4F1EA,stroke-width:2px
+    classDef sub fill:#F4F1EA,stroke:#6f6a60,color:#1d1b18
+    classDef gmail fill:#E8F3F1,stroke:#0F5F5C,color:#0b2e2c,stroke-width:1.5px
+    classDef cal fill:#EEF0FB,stroke:#3B4BA8,color:#1b2150,stroke-width:1.5px
+    classDef val fill:#FFFFFF,stroke:#3B4BA8,color:#1b2150,stroke-dasharray:4 3
+    classDef out fill:#FDF2F8,stroke:#9D174D,color:#3b0a22,stroke-width:1.5px
+    classDef note fill:#FFFBEA,stroke:#B45309,color:#3a2604,stroke-width:1.5px
+    classDef api fill:#ffffff,stroke:#3B4BA8,color:#1b2150
+
+    class U,CT entrada
+    class AG brain
+    class LLM,MEM,SP sub
+    class T1,EWT,GM,CODE gmail
+    class T2,Q,T3,CONF,ALT cal
+    class R1,R2,R3 out
+    class NOTE note
+    class GCAPI api
+
+    style IN fill:#FFFAF2,stroke:#C2410C
+    style BRAIN fill:#FAF8F3,stroke:#1d1b18
+    style GMAIL fill:#F5FBFA,stroke:#0F5F5C
+    style CAL fill:#F7F8FE,stroke:#3B4BA8
+    style VAL fill:#FFFFFF,stroke:#3B4BA8,stroke-dasharray:5 4
+    style OUT fill:#FFF8FB,stroke:#9D174D
