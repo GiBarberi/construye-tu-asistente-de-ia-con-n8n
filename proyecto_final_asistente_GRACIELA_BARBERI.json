@@ -9,7 +9,7 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "0bef0e1a-c4be-48ab-a298-085dcf9e6b44",
+      "id": "1e772b7a-f8e5-4740-8437-b1a04346108a",
       "name": "Webhook POST /laia",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -25,7 +25,7 @@
         "language": "javaScript",
         "jsCode": "// Contrato de entrada del endpoint POST /webhook/laia\n// Body JSON: { \"query\": string (1-1000), \"session_id\": string (3-100, letras, números, - y _) }\nconst body = ($input.first().json.body) || {};\nconst errores = [];\n\nconst query = typeof body.query === 'string' ? body.query.trim() : '';\nif (typeof body.query !== 'string') errores.push({ campo: 'query', problema: 'Es obligatorio y debe ser texto.' });\nelse if (query.length === 0) errores.push({ campo: 'query', problema: 'No puede estar vacío.' });\nelse if (query.length > 1000) errores.push({ campo: 'query', problema: 'Máximo 1000 caracteres.' });\n\nconst sessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';\nif (typeof body.session_id !== 'string') errores.push({ campo: 'session_id', problema: 'Es obligatorio y debe ser texto.' });\nelse if (!/^[A-Za-z0-9_-]{3,100}$/.test(sessionId)) errores.push({ campo: 'session_id', problema: 'Entre 3 y 100 caracteres: letras, números, guion o guion bajo.' });\n\nconst permitidos = ['query', 'session_id'];\nconst extra = Object.keys(body).filter((k) => !permitidos.includes(k));\nif (extra.length) errores.push({ campo: extra.join(', '), problema: 'Campos no admitidos por el contrato.' });\n\nreturn [{ json: { valido: errores.length === 0, errores, query, session_id: sessionId || null } }];\n"
       },
-      "id": "36f8e2c5-a1af-404c-8c4e-fadbfdf39463",
+      "id": "d08d057f-d06e-45e9-a95a-971ef495517e",
       "name": "Validar contrato",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -56,7 +56,7 @@
           "combinator": "and"
         }
       },
-      "id": "29fa3ac0-e90a-464d-9425-923c99df1e9f",
+      "id": "19de1b32-44ba-409e-92e1-31ba666f582b",
       "name": "¿Payload válido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -72,7 +72,7 @@
           "temperature": 0.3
         }
       },
-      "id": "4f0ecb95-f215-4e9b-a0d3-2584c2c62cd7",
+      "id": "3738f886-3e3c-4875-bcd2-6f3283cabc95",
       "name": "Gemini 3 Flash",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1.2,
@@ -87,7 +87,7 @@
         "sessionKey": "={{ $('Validar contrato').item.json.session_id }}",
         "contextWindowLength": 5
       },
-      "id": "5feb3523-46ba-4c4c-9708-4c63b1fcc96b",
+      "id": "db0432ef-af03-4b0e-a0e9-a6f74858f3c7",
       "name": "Memoria de ventana (k=5)",
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.4,
@@ -144,7 +144,7 @@
           ]
         }
       },
-      "id": "b0c1706c-2f01-49dc-bea2-afe29af2a296",
+      "id": "734010ad-a1ac-4540-89d7-95b050010e34",
       "name": "leer_correos",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -201,7 +201,7 @@
           ]
         }
       },
-      "id": "62ca2ddb-73e7-4dda-9146-8a4824ee6249",
+      "id": "6ae85877-f81d-4656-afbd-7d58bbdc64a6",
       "name": "consultar_disponibilidad",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -288,7 +288,7 @@
           ]
         }
       },
-      "id": "fcb939da-95d0-41c5-b9db-1c48d1e1966d",
+      "id": "7b07f7aa-309a-44e7-84bb-de79254f92d3",
       "name": "crear_evento",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -355,7 +355,7 @@
           ]
         }
       },
-      "id": "35cf41dc-5909-41a9-bc95-03549e1e28b0",
+      "id": "29feb096-5b98-4f38-a4a5-a98a10a6d3e5",
       "name": "enviar_correo",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -373,7 +373,7 @@
           "maxIterations": 10
         }
       },
-      "id": "9faffd28-f62e-4115-be1e-db86c836474b",
+      "id": "34bd6e1a-6ee5-497c-9195-8b8ff87c0a53",
       "name": "Laia (AI Agent)",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -419,7 +419,7 @@
           ]
         }
       },
-      "id": "afac5213-a8ec-46d0-a743-0664af17bc29",
+      "id": "a60ab3fc-6ba6-413c-a5c5-f507d5b2f028",
       "name": "Respuesta 200 · éxito",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -461,7 +461,7 @@
           ]
         }
       },
-      "id": "73898dbc-d6d5-4269-a8ad-39892acbd9be",
+      "id": "83dc201b-1b3e-4449-93a3-2be1d98c538a",
       "name": "Respuesta 503 · fallback IA",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -503,7 +503,7 @@
           ]
         }
       },
-      "id": "2bef1fd1-c101-4dc4-8de5-c310bb6a8a6b",
+      "id": "6d8e4f6a-3fe7-4096-926f-f870c68eba7a",
       "name": "Respuesta 400 · entrada inválida",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -528,7 +528,7 @@
           }
         }
       },
-      "id": "11b2e450-1656-406e-9832-31cf975eec42",
+      "id": "ee8754e4-0f6c-4efa-93df-e960ef236599",
       "name": "Responder (contrato JSON)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -665,7 +665,7 @@
           ]
         }
       },
-      "id": "df043b2f-735f-4688-89b6-7f7b7dd9603f",
+      "id": "cd97f89a-c85d-47c7-b7ad-bfe4f2ec0e4f",
       "name": "Registrar log (laia_logs)",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
@@ -734,7 +734,7 @@
           ]
         }
       },
-      "id": "91284492-c3cc-48ca-9283-958bd46fc04a",
+      "id": "f5ed00aa-9ab2-4c15-871e-3fa0ef8d792c",
       "name": "Cuando Laia usa una herramienta",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -771,7 +771,7 @@
           ]
         }
       },
-      "id": "61be598d-d372-45be-9d28-65893c483987",
+      "id": "7695a6a8-915e-4a98-9d11-caebe5fcf594",
       "name": "Preparar intento",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -879,7 +879,7 @@
           "renameFallbackOutput": "desconocida"
         }
       },
-      "id": "02f2d5f8-f182-4120-96ea-b9889d9e4d42",
+      "id": "dd3c266d-2dcc-4d3c-94ff-f40e51ca53db",
       "name": "Ruta por acción",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -901,7 +901,7 @@
         },
         "options": {}
       },
-      "id": "87617106-3124-4477-86a2-acba2acb65af",
+      "id": "0a55aa92-8f07-4ccd-a7aa-bc9f7ad3d562",
       "name": "Gmail: obtener correos",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
@@ -911,7 +911,7 @@
       ],
       "onError": "continueErrorOutput",
       "alwaysOutputData": true,
-      "webhookId": "bb6f75d7-d246-4155-9f41-490cb666dde8"
+      "webhookId": "a1be3dbf-d04b-439d-a145-20d3a50d77f5"
     },
     {
       "parameters": {
@@ -919,7 +919,7 @@
         "language": "javaScript",
         "jsCode": "// Limpieza y normalización de correos (unidad CODE)\n// Saca el HTML, corta el historial del hilo y las firmas, y recorta el texto.\nconst MAX_CHARS = 1200;\n\nfunction htmlATexto(html) {\n  return String(html || '')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/(p|div|li|tr)>/gi, '\\n')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .replace(/&#39;/g, \"'\");\n}\n\nfunction normalizeContent(texto) {\n  let limpio = String(texto || '').replace(/\\r/g, '');\n  const cortes = [\n    /^\\s*El .{0,200}escribi[oó]:\\s*$/im,\n    /^\\s*On .{0,200}wrote:\\s*$/im,\n    /^-{2,}\\s*(Original Message|Mensaje original)\\s*-{2,}/im,\n    /^\\s*De:\\s.*$/im,\n    /^\\s*From:\\s.*$/im,\n    /^--\\s*$/m,\n    /^Enviado desde mi /im,\n    /^Sent from my /im\n  ];\n  for (const patron of cortes) {\n    const m = limpio.match(patron);\n    if (m && m.index > 0) limpio = limpio.slice(0, m.index);\n  }\n  limpio = limpio\n    .split('\\n')\n    .filter((linea) => !linea.trim().startsWith('>'))\n    .join('\\n')\n    .replace(/[ \\t]+/g, ' ')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n  return limpio.length > MAX_CHARS ? limpio.slice(0, MAX_CHARS) + '…' : limpio;\n}\n\nconst correos = $input.all()\n  .filter((item) => item.json && item.json.id)\n  .map((item) => {\n    const c = item.json;\n    const cuerpo = c.text ? c.text : htmlATexto(c.html);\n    return {\n      id: c.id,\n      threadId: c.threadId,\n      de: (c.from && c.from.text) || '',\n      asunto: c.subject || '(sin asunto)',\n      fecha: c.date || '',\n      cuerpo: normalizeContent(cuerpo)\n    };\n  });\n\nreturn [{ json: { total: correos.length, correos } }];\n"
       },
-      "id": "9745cf05-ec1d-488e-b5db-039928b4cbb4",
+      "id": "24bdf890-11ed-4625-a494-ded48bd0cbf3",
       "name": "Limpiar y normalizar correos",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -951,7 +951,7 @@
           }
         }
       },
-      "id": "773e0ce4-e5a2-48e1-887e-125c58950d02",
+      "id": "34482cad-4d8f-4447-8bef-a20c68dc0cfb",
       "name": "Calendar: listar eventos",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
@@ -968,7 +968,7 @@
         "language": "javaScript",
         "jsCode": "// Normaliza la lista de eventos de Google Calendar (ya en hora de Buenos Aires)\nconst eventos = $input.all()\n  .filter((item) => item.json && item.json.id)\n  .map((item) => {\n    const e = item.json;\n    return {\n      id: e.id,\n      titulo: e.summary || '(sin título)',\n      inicio: (e.start && (e.start.dateTime || e.start.date)) || null,\n      fin: (e.end && (e.end.dateTime || e.end.date)) || null,\n      todo_el_dia: Boolean(e.start && e.start.date && !e.start.dateTime),\n      link: e.htmlLink || null\n    };\n  });\nreturn [{ json: { total: eventos.length, hay_conflicto: eventos.length > 0, eventos } }];\n"
       },
-      "id": "15fb91c3-6192-4c1d-9e73-2a2b5ebea343",
+      "id": "5eb3f7b7-f5c5-4dfb-abe4-a2f3e061b41a",
       "name": "Formatear eventos",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -979,8 +979,37 @@
     },
     {
       "parameters": {
-        "resource": "event",
-        "operation": "create",
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ String($json.invitados || '').trim() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "4a047533-8898-42a8-88bb-6bee5f45824e",
+      "name": "¿Hay invitados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        600,
+        848
+      ]
+    },
+    {
+      "parameters": {
         "calendar": {
           "__rl": true,
           "mode": "list",
@@ -989,23 +1018,47 @@
         },
         "start": "={{ $json.inicio }}",
         "end": "={{ $json.fin }}",
-        "useDefaultReminders": true,
         "additionalFields": {
-          "summary": "={{ $json.titulo }}",
-          "description": "={{ $json.descripcion }}",
           "attendees": [
-            "={{ $json.invitados || \"\" }}"
+            "={{ String($json.invitados).split(',').map(e => e.trim()).filter(Boolean).join(',') }}"
           ],
-          "sendUpdates": "={{ $json.invitados ? \"all\" : \"none\" }}"
+          "description": "={{ $json.descripcion }}",
+          "sendUpdates": "all",
+          "summary": "={{ $json.titulo }}"
         }
       },
-      "id": "27d4d680-b143-407f-9f6e-bc70658ac599",
-      "name": "Calendar: crear evento",
+      "id": "49a6f0b6-6a1b-4a64-b473-ea636384477c",
+      "name": "Calendar: crear evento (con invitados)",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
       "position": [
         720,
-        840
+        760
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary",
+          "cachedResultName": "Calendario principal"
+        },
+        "start": "={{ $json.inicio }}",
+        "end": "={{ $json.fin }}",
+        "additionalFields": {
+          "description": "={{ $json.descripcion }}",
+          "summary": "={{ $json.titulo }}"
+        }
+      },
+      "id": "f168b639-a20d-42c9-a275-1bd9ce705506",
+      "name": "Calendar: crear evento (sin invitados)",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        920
       ],
       "onError": "continueErrorOutput"
     },
@@ -1060,7 +1113,7 @@
           ]
         }
       },
-      "id": "e380d625-245d-4b86-a3fe-4972afb7239f",
+      "id": "c55a7384-d991-4a98-b7f3-58aff7e2d492",
       "name": "Formatear evento creado",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -1081,7 +1134,7 @@
           "appendAttribution": false
         }
       },
-      "id": "eda01dbd-b83b-4a06-a945-c28d472ece70",
+      "id": "65b3968c-ac80-4a6b-ad60-91422953a864",
       "name": "Gmail: enviar correo",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
@@ -1090,7 +1143,7 @@
         1000
       ],
       "onError": "continueErrorOutput",
-      "webhookId": "a5f0ff3d-a65f-4ddd-a9d5-4a86cb5be42c"
+      "webhookId": "130c9ff4-00c5-44c5-80cf-53b9223cc49f"
     },
     {
       "parameters": {
@@ -1119,7 +1172,7 @@
           ]
         }
       },
-      "id": "eef09d77-e6d8-43e7-9dd8-6a6b0b61868d",
+      "id": "e4dc9d52-bee0-4329-b802-f907692234e5",
       "name": "Formatear correo enviado",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -1143,7 +1196,7 @@
           ]
         }
       },
-      "id": "9bafc4ad-de90-420a-9498-3c5b3248c8a5",
+      "id": "437eee85-c882-41e6-be89-7b3444624bcc",
       "name": "Acción desconocida",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -1158,7 +1211,7 @@
         "language": "javaScript",
         "jsCode": "// Clasifica errores de las APIs de Google (Gmail y Calendar) con la misma lógica.\n// - Transitorios (429, 5xx, timeouts, red): se reintentan con backoff exponencial + jitter.\n// - Permanentes (400, 401, 403, 404): no se reintentan.\n// - Escrituras (crear_evento, enviar_correo) NO se reintentan solas aunque el error sea\n//   transitorio: la operación podría haberse completado y se duplicaría (idempotencia).\nconst MAX_INTENTOS = 3;\nconst ESCRITURAS = ['crear_evento', 'enviar_correo'];\nconst req = $('Preparar intento').last().json;\nconst entrada = $input.first().json || {};\nconst err = entrada.error || entrada;\nconst mensaje = (typeof err === 'string' ? err : String(err.message || err.description || JSON.stringify(err))).slice(0, 300);\n\nlet status = Number(err.httpCode || err.status || err.statusCode || 0);\nif (!status) {\n  const m = mensaje.match(/\\b([45]\\d\\d)\\b/);\n  if (m) status = Number(m[1]);\n}\nif (!status) {\n  const porTexto = [\n    [/bad request|invalid/i, 400],\n    [/unauthori[sz]ed|invalid credentials|token/i, 401],\n    [/forbidden|insufficient permission/i, 403],\n    [/not found/i, 404],\n    [/too many requests|rate limit|quota/i, 429],\n    [/internal server error/i, 500],\n    [/bad gateway/i, 502],\n    [/service unavailable|unavailable/i, 503],\n    [/gateway timeout/i, 504]\n  ];\n  for (const [patron, codigo] of porTexto) {\n    if (patron.test(mensaje)) { status = codigo; break; }\n  }\n}\n\nconst porRed = /timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|socket hang up|network/i.test(mensaje);\nconst transitorio = [429, 500, 502, 503, 504].includes(status) || porRed;\nconst esEscritura = ESCRITURAS.includes(req.accion);\nconst intento = Number(req.intento || 0);\nconst reintentar = transitorio && !esEscritura && intento + 1 < MAX_INTENTOS;\nconst espera = Math.pow(2, intento) + Math.round((0.1 + Math.random() * 0.4) * 100) / 100;\n\nreturn [{\n  json: {\n    ...req,\n    intento,\n    reintentar,\n    espera_seg: espera,\n    http_status: status || null,\n    tipo_error: transitorio ? 'transitorio' : 'permanente',\n    escritura_sin_confirmar: transitorio && esEscritura,\n    mensaje\n  }\n}];\n"
       },
-      "id": "d69c9abc-b743-4810-8b43-9dceb9cf7412",
+      "id": "5691445b-ddae-4e26-a33c-01fd91c1b6c3",
       "name": "Analizar error (Google API)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1189,7 +1242,7 @@
           "combinator": "and"
         }
       },
-      "id": "a83cd990-ca8a-43c5-a15e-0d47ed1a069f",
+      "id": "100b3297-3082-4ba9-b56d-ec97c750c68b",
       "name": "¿Transitorio, lectura y quedan intentos?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -1204,7 +1257,7 @@
         "amount": "={{ $json.espera_seg }}",
         "unit": "seconds"
       },
-      "id": "10bc2996-0dd7-4bcb-839f-34d24ccf593f",
+      "id": "6253d58c-2b78-405f-b90d-ee5cce74acfa",
       "name": "Esperar (backoff exponencial)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
@@ -1212,7 +1265,7 @@
         1640,
         760
       ],
-      "webhookId": "b014bda5-9b1e-4a09-9d82-6ff4a82916a1"
+      "webhookId": "d8673158-e911-4d31-9cc6-d7222edd9b7b"
     },
     {
       "parameters": {
@@ -1229,7 +1282,7 @@
           ]
         }
       },
-      "id": "a42f7c19-bd71-45d4-a59f-ab4b11fb6777",
+      "id": "2828c038-ef24-4971-bb02-78dcf090a216",
       "name": "Fallback Google API",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -1245,7 +1298,7 @@
         "width": 620,
         "height": 240
       },
-      "id": "dee68ced-ca06-4b56-b226-f3b4d2aa4d57",
+      "id": "bae4d0e6-064c-46ec-bdfe-38ad3ff98824",
       "name": "Nota 1",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
@@ -1512,7 +1565,7 @@
         ],
         [
           {
-            "node": "Calendar: crear evento",
+            "node": "¿Hay invitados?",
             "type": "main",
             "index": 0
           }
@@ -1551,7 +1604,43 @@
         ]
       ]
     },
-    "Calendar: crear evento": {
+    "Calendar: crear evento (con invitados)": {
+      "main": [
+        [
+          {
+            "node": "Formatear evento creado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analizar error (Google API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay invitados?": {
+      "main": [
+        [
+          {
+            "node": "Calendar: crear evento (con invitados)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Calendar: crear evento (sin invitados)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar: crear evento (sin invitados)": {
       "main": [
         [
           {

@@ -43,6 +43,14 @@ curl -X POST https://grabarberi.app.n8n.cloud/webhook/laia \
   -d '{"query": "Agenda una reunión con Juan mañana a las 10am", "session_id": "evaluador-01"}'
 ```
 
+**Con PowerShell (Windows):**
+
+```powershell
+$clave = "TU_CLAVE"
+$body = '{"query": "Agenda una reunión con Juan mañana a las 10am", "session_id": "evaluador-01"}'
+Invoke-RestMethod -Method Post -Uri "https://grabarberi.app.n8n.cloud/webhook/laia" -Headers @{"X-Laia-Key"=$clave} -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) | ConvertTo-Json -Depth 5
+```
+
 **Secuencia sugerida para ver todo funcionando** (con el mismo `session_id`, así se ve la memoria):
 
 1. `"Hola, me llamo Juan Pérez. ¿Qué podés hacer?"` → se presenta y lista lo que puede hacer.
@@ -124,7 +132,7 @@ Todo vive en **un solo workflow** con dos entradas:
 | --- | --- | --- |
 | `leer_correos` | Lee Gmail y devuelve los correos limpios (sin HTML, historial del hilo ni firmas) | `consulta` (sintaxis de búsqueda de Gmail), `cantidad` (1 a 10) |
 | `consultar_disponibilidad` | Lista los eventos de un rango y marca si hay conflicto | `desde`, `hasta` en ISO 8601 con `-03:00` |
-| `crear_evento` | Crea el evento, con invitados opcionales | `titulo`, `inicio`, `fin`, `descripcion`, `invitados` |
+| `crear_evento` | Crea el evento. Un nodo `¿Hay invitados?` elige entre dos versiones del nodo de Calendar: con invitados (Google les envía la invitación) o sin el campo de invitados | `titulo`, `inicio`, `fin`, `descripcion`, `invitados` |
 | `enviar_correo` | Envía un correo de texto | `para`, `asunto`, `mensaje` |
 
 **System Prompt final** (resumen; el texto completo está en el nodo `Laia (AI Agent)`):
@@ -262,13 +270,23 @@ Todas son ejecuciones reales contra el Webhook de producción.
 > Para mañana, viernes 6 de noviembre, tenés un solo compromiso en tu agenda:
 > * **15:00 - 15:30**: [IA] - Reunión para revisar la propuesta.
 
-**4. Agendar una reunión de punta a punta** (`"Agenda una reunión con Juan mañana a las 10am"`):
+**4. Agendar una reunión de punta a punta** (ejecución 219, `"Agenda una reunión con Juan mañana a las 10am"`): Laia consulta la disponibilidad, crea el evento de 10:00 a 10:30 y confirma con el link. Como no tiene el email de Juan, lo crea sin invitados y ofrece sumarlo.
 
 ![Respuesta del endpoint al agendar](capturas/final_agendar_juan.png)
 
+**5. Memoria sobre la acción anterior** (ejecución 222, misma `session_id`, `"¿A qué hora quedó la reunión y con quién era?"`): responde con los datos del turno anterior sin volver a consultar el calendario.
+
+![Laia recuerda la reunión agendada](capturas/final_memoria.png)
+
 ![Evento creado en Google Calendar](capturas/final_evento_calendar.png)
 
-**5. Ejecución en n8n y logs:**
+**6. Error de una API de Google manejado sin cortar el servicio** (ejecución 215, antes de separar los nodos con y sin invitados): Calendar devolvió `Invalid attendee value`. El analizador lo clasificó como permanente (`400`), no lo reintentó, y Laia respondió `200` explicando el problema sin inventar un evento:
+
+```json
+{ "error": { "accion": "crear_evento", "tipo": "permanente", "http_status": 400, "mensaje": "Invalid attendee value", "intentos": 1, "escritura_sin_confirmar": false } }
+```
+
+**7. Evento creado, ejecución en n8n y logs:**
 
 ![Ejecución exitosa en n8n](capturas/final_ejecucion.png)
 
