@@ -5,8 +5,134 @@
 | Checkpoint | Archivo | Qué agrega |
 | --- | --- | --- |
 | **1. Agente base** | [`checkpoint1_agente_base_GRACIELA_BARBERI.json`](checkpoint1_agente_base_GRACIELA_BARBERI.json) | Chat Trigger, AI Agent, LLM, System Prompt y memoria básica |
-| 2. Herramientas | (próximamente) | Gmail y Google Calendar |
+| **2. Gmail + Calendar** | [`checkpoint2_gmail_calendar_GRACIELA_BARBERI.json`](checkpoint2_gmail_calendar_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint2_arquitectura.png) | Gmail como herramienta (leer, limpiar y clasificar) y Calendar esbozado con validación de disponibilidad |
 | 3. Memoria y resiliencia | (próximamente) | Ventana deslizante, Session ID por usuario y manejo de errores |
+
+**Qué hace Laia hasta ahora:** conversa con memoria y lee tu Gmail. Además, limpia cada correo (sin HTML, sin historial del hilo y sin firmas) y lo clasifica en un JSON estructurado. Cuando detecta una reunión, convierte la fecha relativa a ISO 8601 y verifica en Google Calendar si el horario está libre. Antes de crear un evento, siempre pide confirmación.
+
+---
+
+## Checkpoint 2: Gmail como herramienta y Calendar esbozado
+
+### Diagrama de arquitectura
+
+![Arquitectura Gmail → Agente → Calendar](diagramas/checkpoint2_arquitectura.png)
+
+El diagrama también está en [SVG](diagramas/checkpoint2_arquitectura.svg) y en código fuente [Mermaid](diagramas/checkpoint2_arquitectura.mmd). Incluye:
+
+- **Las 5 piezas del flujo:** Entrada, Brain Node, Gmail Tool Set, Calendar Tool Set y Salida, con los datos que viajan en cada flecha.
+- **El bloque de validación de disponibilidad:** List Events antes de crear un evento.
+- **La nota de manejo de fechas y zonas horarias.**
+
+### Cómo funciona
+
+El AI Agent es el centro del flujo: **decide** qué herramienta usar según el pedido. No es un flujo lineal.
+
+| Tool | Tipo de nodo | Estado | Qué hace |
+| --- | --- | --- | --- |
+| `leer_correos` | Call n8n Workflow Tool (subflujo en el mismo workflow) | ✅ funcional | Execute Workflow Trigger → **Gmail · Get many** → **Code: limpiar y normalizar** → devuelve `{ total, correos[] }` |
+| `consultar_disponibilidad` | Google Calendar Tool · List Events | ✅ probado | Valida que el horario esté libre antes de crear un evento |
+| `crear_evento` | Google Calendar Tool · Create | 🟡 esbozado | Crea el evento con título `[IA] - …`, solo después de validar y con confirmación del usuario |
+
+**Clasificación estructurada.** Para cada correo, Laia devuelve:
+
+```json
+{
+  "id": "…",
+  "de": "…",
+  "asunto": "…",
+  "category": "Agendamiento | Facturación | Soporte | Ventas | Personal | Spam | Otro",
+  "urgency_level": "alta | media | baja",
+  "summary": "…",
+  "accion_sugerida": "agendar | responder | archivar | revisar",
+  "fecha_propuesta": "2026-11-06T15:00:00-03:00 o null"
+}
+```
+
+**Manejo de fechas:**
+
+- **Fecha actual inyectada:** n8n agrega la fecha real al System Prompt con `$now.setZone('America/Argentina/Buenos_Aires')`.
+- **Conversión a ISO 8601:** el agente convierte lo relativo ("mañana a las 15 h") a ISO 8601 con offset `-03:00`, que es el formato que recibe la API de Calendar.
+- **Correos en UTC:** Gmail entrega las fechas en UTC, así que se convierten a `-03:00` antes de comparar.
+- **Datos incompletos:** si falta el día o la hora, Laia pregunta en lugar de adivinar.
+
+### Cómo importarlo
+
+1. En n8n: **Workflows → Import from File** y elegí `checkpoint2_gmail_calendar_GRACIELA_BARBERI.json`.
+2. Conectá las credenciales; el archivo no incluye ninguna:
+   - **Gemini 3 Flash:** credencial *Google Gemini (PaLM) API*.
+   - **Gmail: obtener correos:** credencial *Gmail OAuth2*.
+   - **consultar_disponibilidad** y **crear_evento:** credencial *Google Calendar OAuth2*.
+3. **Publicá el workflow** (botón *Publish*). Es necesario porque la tool `leer_correos` llama a un subflujo del mismo workflow, y n8n solo ejecuta subflujos publicados. El subflujo se referencia con `{{ $workflow.id }}`, así que funciona sin cambios después de importar.
+
+### Cómo probarlo
+
+1. Mandate un correo de prueba, por ejemplo: *"¿Podemos juntarnos mañana a las 15 h para revisar la propuesta de la agencia?"*.
+2. Abrí **Open chat** y escribí: *"Revisá mis últimos 3 correos y clasificalos."*
+3. Después pedile: *"Verificá si estoy libre mañana a las 15 h. Todavía no crees el evento."*
+
+### Evidencia de funcionamiento
+
+Prueba real en n8n Cloud (5/11/2026) con una cuenta de Gmail conectada.
+
+**Paso 1: lectura y limpieza.** Salida del nodo *Limpiar y normalizar correos* (fragmento):
+
+```json
+{
+  "total": 3,
+  "correos": [
+    {
+      "id": "1a1ad35cee76c4b8",
+      "asunto": "Reunión para revisar la propuesta",
+      "fecha": "2026-11-05T19:35:10.000Z",
+      "cuerpo": "Hola Grace, ¿podemos juntarnos mañana a las 15 h para revisar la propuesta\nde la agencia? Saludos, Natalia"
+    }
+  ]
+}
+```
+
+**Paso 2: clasificación.** Respuesta de Laia:
+
+> **Usuario:** Revisá mis últimos 3 correos y clasificalos.
+>
+> **Laia:** He revisado tus últimos 3 correos. Aquí tenés el resumen:
+> - **Reunión para revisar la propuesta:** Natalia te propone una reunión para mañana, viernes 6 de noviembre, a las 15:00 h.
+> - **Alerta de seguridad (Google):** notificación sobre el acceso de n8n Cloud a tu cuenta de Google (recibiste dos avisos similares).
+
+```json
+[
+  {
+    "id": "1a1ad35cee76c4b8",
+    "asunto": "Reunión para revisar la propuesta",
+    "category": "Agendamiento",
+    "urgency_level": "alta",
+    "summary": "Natalia solicita una reunión para mañana viernes a las 15:00 h para revisar la propuesta de la agencia.",
+    "accion_sugerida": "agendar",
+    "fecha_propuesta": "2026-11-06T15:00:00-03:00"
+  },
+  {
+    "id": "1a1ad346f6b51783",
+    "de": "Google <no-reply@accounts.google.com>",
+    "asunto": "Alerta de seguridad",
+    "category": "Otro",
+    "urgency_level": "media",
+    "summary": "Notificación de seguridad de Google informando que n8n Cloud ha accedido a los datos de la cuenta.",
+    "accion_sugerida": "revisar",
+    "fecha_propuesta": null
+  }
+]
+```
+
+En la clasificación se ve cómo "mañana a las 15 h" se resolvió como `2026-11-06T15:00:00-03:00`.
+
+**Paso 3: validación de disponibilidad.** La tool `consultar_disponibilidad` se llamó con `desde: 2026-11-06T15:00:00-03:00` y `hasta: 2026-11-06T15:30:00-03:00`, y devolvió 0 eventos:
+
+> **Usuario:** Sí, verificá si estoy libre mañana a las 15 h. Todavía no crees el evento.
+>
+> **Laia:** Tenés el horario libre para mañana, viernes 06/11/2026, a las 15:00 h. No hay conflictos en tu agenda.
+> ¿Querés que proceda a crear el evento "[IA] - Reunión para revisar la propuesta" con Natalia?
+
+Laia **no creó el evento**: validó la disponibilidad y pidió confirmación (human-in-the-loop). La creación completa se valida en la entrega final.
 
 ---
 
