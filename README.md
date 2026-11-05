@@ -290,6 +290,8 @@ Todas son ejecuciones reales contra el Webhook de producción.
 
 ![Ejecución exitosa en n8n](capturas/final_ejecucion.png)
 
+![Detalle de la ejecución: agente, memoria y herramientas usadas](capturas/final_ejecucion_detalle.png)
+
 ![Tabla laia_logs con la versión y el código HTTP](capturas/final_logs.png)
 
 ### Video demo
