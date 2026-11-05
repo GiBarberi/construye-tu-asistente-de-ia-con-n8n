@@ -1,0 +1,83 @@
+---
+title: "Laia · Checkpoint 3 — Memoria, resiliencia y logging"
+---
+flowchart TB
+    %% ───────────── ENTRADA ─────────────
+    U(["👤 Usuario"]) -- "mensaje" --> CT["<b>Chat Trigger</b><br/>genera sessionId único por conversación"]
+
+    %% ───────────── BRAIN ─────────────
+    subgraph BRAIN["🧠 BRAIN NODE"]
+        direction LR
+        LLM["<b>Gemini 3 Flash</b><br/>models/gemini-3-flash-preview"]
+        MEM["<b>Window Buffer Memory</b><br/>k = 6 turnos<br/>Session ID = sessionId del chat"]
+        AG{{"<b>Laia · AI Agent</b><br/>Retry On Fail: 3 intentos · 3 s<br/>On Error → salida de error"}}
+        LLM -. "ai_languageModel" .-> AG
+        MEM -. "historial de la sesión" .-> AG
+    end
+
+    CT -- "chatInput + sessionId" --> AG
+
+    %% ───────────── TOOLS ─────────────
+    subgraph GMAIL["📨 GMAIL TOOL SET · leer_correos"]
+        direction TB
+        P["Preparar intento<br/>intento = 0, 1, 2"]
+        G["<b>Gmail · Get many</b><br/>On Error → salida de error"]
+        C["<b>Code: limpiar y normalizar</b>"]
+        AE["<b>Analizar error</b><br/>¿HTTP 429 / 5xx / timeout?"]
+        R{"¿Transitorio y<br/>quedan intentos?"}
+        W["<b>Esperar · backoff exponencial</b><br/>1 s → 2 s → 4 s + jitter"]
+        FG["<b>Fallback Gmail</b><br/>total 0 + error {tipo, http_status, mensaje}"]
+        P --> G
+        G -- "200 OK" --> C
+        G -- "error" --> AE --> R
+        R -- "sí" --> W --> P
+        R -- "no · 4xx o sin intentos" --> FG
+    end
+
+    subgraph CAL["📅 CALENDAR TOOL SET"]
+        direction TB
+        CD["<b>consultar_disponibilidad</b><br/>List Events · Retry 3 × 2 s"]
+        CE["<b>crear_evento</b><br/>Create · Retry 3 × 2 s<br/>solo con confirmación"]
+        CD -- "sin conflicto + confirmación" --> CE
+    end
+
+    AG == "leer_correos(consulta, cantidad)" ==> P
+    C == "{ total, correos[] }" ==> AG
+    FG -. "error estructurado: Laia avisa sin inventar datos" .-> AG
+    AG == "ISO 8601 -03:00" ==> CD
+
+    %% ───────────── SALIDAS ─────────────
+    LOK["<b>Log: éxito</b><br/>status = success"]
+    LER["<b>Log: error · fallback</b><br/>status = error<br/>error_message"]
+    DT[("<b>Data Table · laia_logs</b><br/>execution_id · workflow_name · status<br/>model_used · timestamp · session_id<br/>user_message · error_message · respuesta")]
+    OUT["<b>Responder al chat</b>"]
+    UOK(["✅ Respuesta de Laia"])
+    UER(["⚠️ Mensaje de fallback:<br/>'no pude procesar tu pedido…'"])
+
+    AG == "output (flujo feliz)" ==> LOK
+    AG -- "falló tras 3 intentos" --> LER
+    LOK ==> DT
+    LER --> DT
+    DT --> OUT
+    OUT ==> UOK
+    OUT -.-> UER
+
+    %% ───────────── ESTILOS ─────────────
+    classDef base fill:#F4F1EA,stroke:#6f6a60,color:#1d1b18
+    classDef brain fill:#1d1b18,stroke:#1d1b18,color:#F4F1EA,stroke-width:2px
+    classDef ok fill:#E7F5EC,stroke:#15803D,color:#0b3b1d,stroke-width:1.5px
+    classDef err fill:#FDECEC,stroke:#B91C1C,color:#4c0a0a,stroke-width:1.5px
+    classDef log fill:#FFF7E6,stroke:#B45309,color:#3a2604,stroke-width:1.5px
+    classDef cal fill:#EEF0FB,stroke:#3B4BA8,color:#1b2150
+
+    class U,CT,LLM,MEM,P base
+    class AG brain
+    class G,C,LOK,UOK ok
+    class AE,R,W,FG,LER,UER err
+    class DT,OUT log
+    class CD,CE cal
+
+    linkStyle default stroke:#4b4740
+    style BRAIN fill:#FAF8F3,stroke:#1d1b18
+    style GMAIL fill:#FBFBFB,stroke:#6f6a60
+    style CAL fill:#F7F8FE,stroke:#3B4BA8

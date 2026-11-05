@@ -6,9 +6,140 @@
 | --- | --- | --- |
 | **1. Agente base** | [`checkpoint1_agente_base_GRACIELA_BARBERI.json`](checkpoint1_agente_base_GRACIELA_BARBERI.json) | Chat Trigger, AI Agent, LLM, System Prompt y memoria básica |
 | **2. Gmail + Calendar** | [`checkpoint2_gmail_calendar_GRACIELA_BARBERI.json`](checkpoint2_gmail_calendar_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint2_arquitectura.png) | Gmail como herramienta (leer, limpiar y clasificar) y Calendar esbozado con validación de disponibilidad |
-| 3. Memoria y resiliencia | (próximamente) | Ventana deslizante, Session ID por usuario y manejo de errores |
+| **3. Robustez y memoria** | [`checkpoint3_robustez_GRACIELA_BARBERI.json`](checkpoint3_robustez_GRACIELA_BARBERI.json) · [diagrama](diagramas/checkpoint3_robustez.png) | Memoria de ventana (k = 6) por sesión, reintentos con backoff exponencial, rutas de fallback y logging estructurado |
 
-**Qué hace Laia hasta ahora:** conversa con memoria y lee tu Gmail. Además, limpia cada correo (sin HTML, sin historial del hilo y sin firmas) y lo clasifica en un JSON estructurado. Cuando detecta una reunión, convierte la fecha relativa a ISO 8601 y verifica en Google Calendar si el horario está libre. Antes de crear un evento, siempre pide confirmación.
+**Qué hace Laia hasta ahora:**
+
+- **Conversación:** conversa recordando los últimos 6 intercambios de cada usuario, con la memoria separada por sesión.
+- **Gmail:** lee el correo, lo limpia (sin HTML, sin historial del hilo y sin firmas) y lo clasifica en un JSON estructurado.
+- **Calendar:** cuando detecta una reunión, convierte la fecha relativa a ISO 8601, valida la disponibilidad en Google Calendar y pide confirmación antes de crear el evento.
+- **Fallas:** si una API falla, reintenta solo los errores transitorios con backoff exponencial. Si no se recupera, responde con un mensaje de fallback en lugar de cortarse.
+- **Registro:** guarda cada ejecución (éxito o error) en la tabla `laia_logs`.
+
+---
+
+## Checkpoint 3: memoria, resiliencia y logging
+
+### Diagrama de arquitectura
+
+![Flujo con caminos de éxito y de recuperación](diagramas/checkpoint3_robustez.png)
+
+**Verde:** flujo feliz. **Rojo:** flujo de recuperación. **Naranja:** logging. También está en [SVG](diagramas/checkpoint3_robustez.svg) y en código fuente [Mermaid](diagramas/checkpoint3_robustez.mmd).
+
+### 1. Capa de memoria
+
+| Parámetro | Valor | Justificación |
+| --- | --- | --- |
+| Nodo | Window Buffer Memory (*Simple Memory*) | Ventana deslizante FIFO: envía al modelo solo lo reciente |
+| **k** (`contextWindowLength`) | **6** | Una tarea típica de Laia ocupa 3 o 4 turnos: "revisá mis correos", después "¿estoy libre a esa hora?", "agendala" y "¿a qué hora quedó?". Con k = 6 entra la tarea completa más algo de margen, sin arrastrar conversaciones viejas que suman tokens y confusión. Con k = 2 o 3 perdería el contexto en medio del agendamiento; con k = 10 o más el costo crece sin beneficio para tareas cortas. |
+| **Session ID** | `fromInput`: el `sessionId` que genera el Chat Trigger para cada conversación | Cada usuario y cada pestaña de chat tiene su propia memoria. Así se evita que se mezclen conversaciones de distintas personas, que sería un fallo de privacidad. |
+
+### 2. Capa de resiliencia
+
+**Puntos de falla críticos y estrategia**
+
+| # | Punto de falla | Errores típicos | Estrategia |
+| --- | --- | --- | --- |
+| 1 | **LLM (Gemini)**, nodo *Laia (AI Agent)* | Timeout, 429 (cuota), 500/503 (saturación) | **Retry On Fail:** 3 intentos con 3 s entre cada uno. Si sigue fallando, la salida de error deriva a **Log: error** y a una **respuesta de fallback** para el usuario. |
+| 2 | **Gmail API**, subflujo de `leer_correos` | 429, 500/502/503/504, timeout de red | **Backoff exponencial con jitter**, hecho a mano: *Analizar error*, *¿Es transitorio?*, *Esperar* (1 s, 2 s, 4 s + 0,1 a 0,5 s aleatorios) y nuevo intento, hasta 3 intentos. |
+| 2b | **Gmail API**, errores permanentes | 400, 401, 403, 404 | **No se reintentan**: un 401 o 403 no se arregla reintentando. Van directo a **Fallback Gmail**, que devuelve `{ total: 0, error: { tipo, http_status, mensaje } }`, y Laia le explica al usuario qué revisar. |
+| 3 | **Google Calendar API**, tools `consultar_disponibilidad` y `crear_evento` | 500/503, timeout | **Retry On Fail:** 3 intentos con 2 s entre cada uno. Si fallan, el error vuelve al agente como observación y Laia avisa sin inventar el resultado. |
+
+**Prevención de duplicados (idempotencia).** El prompt obliga a Laia a usar `consultar_disponibilidad` antes de cualquier `crear_evento`, y a no repetir una creación si no sabe si la anterior se completó.
+
+> El *Retry On Fail* nativo de n8n espera siempre lo mismo entre intentos y reintenta cualquier error. Por eso, en Gmail el backoff exponencial y el filtro de 4xx se implementaron a mano.
+
+### 3. Capa de observabilidad (logging)
+
+Cada ejecución, sea exitosa o con error, escribe una fila en la **Data Table `laia_logs`** de n8n:
+
+| Columna | Origen |
+| --- | --- |
+| `execution_id` | `{{ $execution.id }}` |
+| `workflow_name` | `{{ $workflow.name }}` |
+| `status` | `success` o `error` |
+| `model_used` | `models/gemini-3-flash-preview` |
+| `timestamp` | `{{ $now }}` en America/Argentina/Buenos_Aires (ISO 8601) |
+| `session_id` | `sessionId` del Chat Trigger |
+| `user_message` | mensaje del usuario |
+| `error_message` | detalle del error, si aplica |
+| `tokens_consumed` | columna prevista. El nodo AI Agent no expone los tokens en su salida (se ven en el detalle de la ejecución), así que queda en `null`. |
+| `respuesta` | respuesta enviada al usuario (primeros 1000 caracteres) |
+
+### Cómo importarlo
+
+1. **Creá la tabla de logs.** En n8n: **Overview → Data tables → Create**, con el nombre `laia_logs` y las columnas de la tabla anterior. Todas son de tipo *string*, salvo `tokens_consumed`, que es *number*.
+2. **Importá el workflow.** **Workflows → Import from File** y elegí `checkpoint3_robustez_GRACIELA_BARBERI.json`.
+3. **Conectá las credenciales:** Gemini, Gmail OAuth2 y Google Calendar OAuth2.
+4. **Publicá el workflow.** Es necesario porque la tool `leer_correos` ejecuta un subflujo del mismo workflow, y n8n solo ejecuta subflujos publicados. La zona horaria del workflow ya viene configurada en `America/Argentina/Buenos_Aires`.
+
+### Cómo probarlo
+
+1. **Flujo feliz:** abrí **Open chat** y escribí *"Revisá mis últimos 2 correos"*. Después revisá que aparezca una fila con `status = success` en `laia_logs`.
+2. **Memoria:** en el mismo chat escribí *"Me llamo …"* y después *"¿Cómo me llamo?"*. Recuerda el nombre. En un chat nuevo (otra sesión) no lo sabe, porque las conversaciones están aisladas.
+3. **Fallback del LLM:** cambiá temporalmente el modelo por uno inexistente y escribí cualquier cosa. Se ven 3 intentos, la respuesta de fallback y una fila con `status = error`. Después restaurá el modelo.
+4. **Error permanente de Gmail:** agregá temporalmente al nodo de Gmail un filtro de etiqueta inexistente y publicá. El error 400 **no se reintenta** y Laia explica qué revisar.
+
+### Evidencia de funcionamiento
+
+Pruebas reales en n8n Cloud (5/11/2026).
+
+**Flujo feliz (ejecución 13).** Laia leyó 2 correos, los clasificó y quedó la fila de log:
+
+```json
+{
+  "execution_id": "13",
+  "workflow_name": "Proyecto Final - Fase 3",
+  "status": "success",
+  "model_used": "models/gemini-3-flash-preview",
+  "timestamp": "2026-11-05T16:45:11.050-03:00",
+  "session_id": "mcp-session-1793907902222",
+  "user_message": "Me llamo Graciela. Revisá mis últimos 2 correos y clasificalos.",
+  "error_message": ""
+}
+```
+
+**Aislamiento de memoria por Session ID (ejecución 15).** Desde otra sesión:
+
+> **Usuario:** ¿Cómo me llamo?
+>
+> **Laia:** Aún no tengo tu nombre en mis registros, pero estoy aquí para ayudarte. Soy **Laia**, tu asistente ejecutiva.
+
+El nombre dado en la sesión de la ejecución 13 no se filtró a otra sesión.
+
+**Fallback del LLM (ejecución 17, con el modelo caído a propósito).** El nodo de Gemini se ejecutó **3 veces** (Retry On Fail), después la salida de error fue a *Log: error*:
+
+```json
+{
+  "execution_id": "17",
+  "status": "error",
+  "model_used": "models/gemini-3-flash-preview",
+  "timestamp": "2026-11-05T16:45:32.831-03:00",
+  "user_message": "¿Tengo algo agendado mañana?",
+  "error_message": "Bad request - please check your parameters",
+  "respuesta": "Disculpá, en este momento no pude procesar tu pedido por una falla del servicio de IA. Ya quedó registrado; probá de nuevo en unos minutos."
+}
+```
+
+**Error permanente de Gmail (ejecuciones 21 y 22, con una etiqueta inexistente).** Salida de *Analizar error de Gmail*:
+
+```json
+{ "intento": 0, "reintentar": false, "tipo_error": "permanente", "mensaje": "Bad request - please check your parameters (item 0)" }
+```
+
+Fue directo a *Fallback Gmail* (1 solo intento, sin reintentos) y Laia respondió:
+
+> No pude leer tus correos porque hay un problema con la conexión a tu cuenta de Google. Por favor, verificá los permisos o intentá reconectar la cuenta.
+
+**Clasificación de errores y backoff.** Prueba unitaria del código de *Analizar error de Gmail*:
+
+```text
+Bad request (texto)    400 permanente   reintentar: false
+503                    503 transitorio  reintentar: true   espera: 1 s + jitter
+429 (2.º intento)      429 transitorio  reintentar: true   espera: 2 s + jitter
+Timeout (3.er intento) –   transitorio  reintentar: false  (se agotaron los 3 intentos)
+401                    401 permanente   reintentar: false
+```
 
 ---
 
